@@ -108,10 +108,11 @@ class PPO(object):
 	def put_data(self, transition):
 		self.data.append(transition)
 
-	def save(self,episode):
-		torch.save(self.critic.state_dict(), "./model/ppo_critic{}.pth".format(episode))
-		torch.save(self.actor.state_dict(), "./model/ppo_actor{}.pth".format(episode))
+	def save(self,model_name,episode,name):
+		print('Guardando!!')
+		torch.save(self.critic.state_dict(), "./model/{}/{}_ppo_critic{}.pth".format(model_name,name,episode))
+		torch.save(self.actor.state_dict(), "./model/{}/{}_ppo_actor{}.pth".format(model_name,name,episode))
 
-	def load(self,episode):
-		self.critic.load_state_dict(torch.load("./model/ppo_critic{}.pth".format(episode)))
-		self.actor.load_state_dict(torch.load("./model/ppo_actor{}.pth".format(episode)))
+	def load(self,model_name,episode,name):
+		self.critic.load_state_dict(torch.load("./model/{}/{}_ppo_critic{}.pth".format(model_name,name,episode)))
+		self.actor.load_state_dict(torch.load("./model/{}/{}_ppo_actor{}.pth".format(model_name,name,episode)))

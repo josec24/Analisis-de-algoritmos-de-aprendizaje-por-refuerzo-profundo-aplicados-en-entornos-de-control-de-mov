@@ -1,10 +1,15 @@
 import numpy as np
 import gym
-from agents.PPO_Agent import PPO
-from data.helper import guardarPuntuacion
 
-def Action_adapter(act,max_action):
-    return  2*(act-0.5)*max_action
+from agents.SAC_Agent import SAC_Agent
+from data.helper import guardarPuntuacion
+from buffer.batch import RandomBuffer
+
+def Action_adapter(a,max_action):
+    return  a*max_action
+
+def Action_adapter_reverse(act,max_action):
+    return  act/max_action
 
 def Reward_adapter(reward, index):
     if index == 0 or index == 1:
@@ -19,9 +24,12 @@ def evaluate_policy(env, model, steps_per_epoch, max_action):
         done, total_reward, steps =  False, 0, 0
         trunc=False
         while not ((done or trunc) or (steps >= steps_per_epoch)):
-            a, logprob_a = model.evaluate(state)
-            act = Action_adapter(a, max_action)
+            a = model.select_action(state, deterministic=True, with_logprob=False)
+            act = Action_adapter(a, max_action) 
             s_prime, reward, done,trunc, _ = env.step(act)
+
+            if trunc:
+                done=True
 
             total_reward += reward
             steps += 1
@@ -43,7 +51,7 @@ if __name__ == '__main__':
     nameEnv=Envs[index]
     Env_With_Dead = [True, True, True, True]
     Loadmodel=False
-    ModelIdex=0
+    ModelIdex=2000
     #env = gym.make(nameEnv)
     env = gym.make(nameEnv,render_mode='human')
     eval_env = gym.make(nameEnv)
@@ -56,10 +64,17 @@ if __name__ == '__main__':
     save_interval = 5e5
     eval_interval = 5e3
 
-    ppo = PPO(env.observation_space.shape[0],env.action_space.shape[0],Env_With_Dead[index])
-    if Loadmodel: ppo.load('PPO',ModelIdex,nameEnv)
+    start_steps = 5*max_steps 
+    update_after = 2*max_steps 
+    update_every= 50
 
-    traj_lenth = 0
+
+    model = SAC_Agent(env.observation_space.shape[0],env.action_space.shape[0])
+    if Loadmodel: model.load('SAC',ModelIdex,nameEnv)
+
+    replay_buffer = RandomBuffer(state_dim, action_dim, Env_With_Dead, max_size=int(1e6))
+
+
     total_steps = 0
     record=0
     rewards = []
@@ -69,12 +84,12 @@ if __name__ == '__main__':
         done,trunc, steps, total_reward = False,False, 0, 0
         game+=1
         while not (done or trunc):
-            traj_lenth += 1
             steps += 1
-
-            a, logprob_a = ppo.select_action(state)
-
+            
+            a = model.select_action(state, deterministic=False, with_logprob=False)
             act = Action_adapter(a,max_action)
+
+
             s_prime, reward, done, trunc, info = env.step(act)
             reward = Reward_adapter(reward, index)
 
@@ -86,24 +101,27 @@ if __name__ == '__main__':
                     record = total_reward
 
                 dw = True
-                guardarPuntuacion(total_reward,nameEnv+'_PPO.csv')
+                guardarPuntuacion(total_reward,nameEnv+'_SAC.csv')
                 print("Game: {}, reward {}, best reward {}, mean score {}, saving model...".format(game, total_reward, record,mean_score))
             else:
                 dw = False
 
-            ppo.put_data((state, a, reward, s_prime, logprob_a, done, dw))
+            replay_buffer.add(state, a, reward, s_prime, dw)
             state = s_prime
             total_reward += reward
 
-            if traj_lenth % T_horizon == 0:
-                ppo.train()
-                traj_lenth = 0
+            if total_steps >= update_after and total_steps % update_every == 0:
+                for j in range(update_every):
+                    model.train(replay_buffer)
+
+
 
             if total_steps % eval_interval == 0:
-                score = evaluate_policy(eval_env, ppo,max_steps, max_action)
+                score = evaluate_policy(eval_env, model, max_steps, max_action)
                 print('Name:',nameEnv,'steps: {}k'.format(int(total_steps/1000)),'score:', score)
+            
             total_steps += 1
 
             if game % 500==0:
-                ppo.save('PPO',game,nameEnv)
+                model.save('SAC',game,nameEnv)
     env.close()
